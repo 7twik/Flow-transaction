@@ -1,0 +1,19 @@
+{
+	"emulators": {
+	  "default": {
+		"port": 3569
+	  }
+	},
+	"contracts": {},
+	"networks": {
+	  "testnet": {
+		"host": "https://rest-testnet.onflow.org"
+	  },
+	  "mainnet": {
+		"host": "https://rest-mainnet.onflow.org"
+	  }
+	},
+	"accounts": {},
+	"deployments": {}
+  }
+  
