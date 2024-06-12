@@ -1,91 +1,130 @@
 import './App.css';
-import * as fcl from '@onflow/fcl'
-import * as t from "@onflow/types";
-import react, {useEffect, useState} from 'react'
-import "./flow/config";
-import {Money} from './script/GetAmount.js'
-import {Deposit} from './transactions/Deposit.js'
-import {Steal} from './transactions/Steal.js'
-import './flow/config.js'
-// 0x94925fdb92008088
+import * as fcl from '@onflow/fcl';
+import { useEffect, useState } from 'react';
+import './flow/config';
+
+// Ensure to replace with your actual contract address
+const CONTRACT_ADDRESS = '0xf50bf6c131609ba6';
 
 fcl.config()
-//  .put("app.detail.title", "My Flow NFT DApp")
-//  .put("app.detail.icon", "https://raw.githubusercontent.com/ThisIsCodeXpert/Flow-NFT-DApp-Tutorial-Series/main/cats/cat5.svg")
-//  .put("accessNode.api", "https://rest-testnet.onflow.org")
-//  .put("discovery.wallet", "https://fcl-discovery.onflow.org/testnet/authn")
+  .put('accessNode.api', 'https://rest-testnet.onflow.org')
+  .put('discovery.wallet', 'https://fcl-discovery.onflow.org/testnet/authn');
 
 function App() {
-  const [money, setMoney] = useState(0);
-
-  const f=async()=>{
-    const res=await fcl.send([
-      fcl.script(Money),
-      fcl.args([])
-    ]).then(fcl.decode)
-    setMoney(res)
-    console.log(res)
-  }
-
-  useEffect(()=>{
-    f();
-  });
-
   const [user, setUser] = useState();
-  useEffect(()=>{
-    console.log(user)
-  },[user])
+  const [balance, setBalance] = useState(0);
 
-  const logIn =  () => {
-    fcl.authenticate();
+  useEffect(() => {
     fcl.currentUser().subscribe(setUser);
-  }
+  }, []);
+
+  const logIn = () => {
+    fcl.authenticate();
+  };
 
   const logOut = async () => {
     await fcl.unauthenticate();
     setUser(null);
-  }
-  const depositTokens = async () => {
-    const amountToDeposit = parseFloat(5);
-    const transactionId = await fcl.send([
-      fcl.transaction(Deposit),
-      fcl.args([
-        fcl.arg(amountToDeposit.toFixed(2), t.UFix64)
-      ]),
-      fcl.payer(fcl.authz),
-      fcl.proposer(fcl.authz),
-      fcl.authorizations([fcl.authz]),
-      fcl.limit(100)
-    ]).then(fcl.decode);
-
-    console.log("Transaction ID: ", transactionId);
-  }
-  const stealTokens = async () => {
-    const transactionId = await fcl.send([
-      fcl.transaction(Steal),
-      fcl.payer(fcl.authz),
-      fcl.proposer(fcl.authz),
-      fcl.authorizations([fcl.authz]),
-      fcl.limit(100)
-    ]).then(fcl.decode);
-
-    console.log("Transaction ID: ", transactionId);
   };
 
+  const depositTokens = async () => {
+    try {
+      const res = await fcl.send([
+        fcl.transaction`
+          import StealableVa from ${CONTRACT_ADDRESS}
+          import FungibleToken from 0x9a0766d93b6608b7
+          import FlowToken from 0x7e60df042a9c0868
+
+          transaction {
+            prepare(acct: AuthAccount) {
+              let vaultRef = acct.borrow<&FlowToken.Vault>(from: /storage/flowTokenVault)
+                ?? panic("Could not borrow reference to the owner's Vault!")
+              let depositAmount: UFix64 = 3.0
+              let depositVault <- vaultRef.withdraw(amount: depositAmount)
+
+              StealableVa.deposit(from: <-depositVault)
+
+            }
+          }
+        `,
+        fcl.payer(fcl.authz),
+        fcl.proposer(fcl.authz),
+        fcl.authorizations([fcl.authz]),
+        fcl.limit(100)
+      ]);
+      console.log('Deposit Tokens:', res);
+      const result = await fcl.tx(res).onceSealed();
+      console.log('Deposit Tokens:', result);
+    } catch (error) {
+      console.error('Failed to deposit tokens:', error);
+    }
+  };
+
+  const stealTokens = async () => {
+    try {
+      const res = await fcl.send([
+        fcl.transaction`
+          import StealableVa from ${CONTRACT_ADDRESS}
+          import FungibleToken from 0x9a0766d93b6608b7
+          import FlowToken from 0x7e60df042a9c0868
+
+          transaction {
+            prepare(acct: AuthAccount) {
+              
+               let stolenVault <- StealableVa.steal()
+              let vaultRef = acct.borrow<&FlowToken.Vault>(from: /storage/flowTokenVault)
+                ?? panic("Could not borrow reference to the owner's Vault!")
+              vaultRef.deposit(from: <-stolenVault)
+
+            }
+          }
+        `,
+        fcl.payer(fcl.authz),
+        fcl.proposer(fcl.authz),
+        fcl.authorizations([fcl.authz]),
+        fcl.limit(100)
+      ]);
+      console.log('Steal Tokens:', res);
+      const result = await fcl.tx(res).onceSealed();
+      console.log('Steal Tokens:', result);
+    } catch (error) {
+      console.error('Failed to steal tokens:', error);
+    }
+  };
+
+  const showFunds = async () => {
+    try {
+      const result = await fcl.query({
+        cadence: `
+          import StealableVa from ${CONTRACT_ADDRESS}
+
+          pub fun main(): UFix64 {
+            return StealableVa.getBalance()
+          }
+        `,
+        args: () => []
+      });
+      setBalance(result);
+    } catch (error) {
+      console.error('Failed to fetch funds:', error);
+    }
+  };
 
   return (
     <div className="App">
-      <h1>My Flow NFT DApp</h1>
-      <h2>Current Address : {user && user.addr ? user.addr : ''}</h2>
-      <h2>Current Balance: {money} </h2>
-      {(user===null||user===undefined)?<button onClick={() => logIn()}>LogIn</button>:
-      (user.loggedIn)?<button onClick={() => logOut()}>Logout</button>:<button onClick={() => logIn()}>LogIn</button>}
-        {((user !== null)&&(user!==undefined)&&(user.loggedIn))?
+      <h1>My Flow Token DApp</h1>
+      <h2>Current Address: {user?.addr || ''}</h2>
+      <h3>Contract Balance: {balance} FLOW</h3>
+      {user?.loggedIn ? (
         <>
-          <button onClick={depositTokens}>Send</button>
-          <button onClick={stealTokens}>Steal</button>
-        </>:<></>}
-        
+          <button onClick={logOut}>Logout</button>
+          <button onClick={depositTokens}>Deposit Tokens</button>
+          <button onClick={stealTokens}>Steal Tokens</button>
+          <button onClick={showFunds}>Show Funds</button>
+        </>
+      ) : (
+        <button onClick={logIn}>Log In</button>
+      )}
     </div>
   );
 }

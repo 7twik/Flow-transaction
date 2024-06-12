@@ -1,28 +1,29 @@
 export const Steal = `
-import VaultContract from 0xf50bf6c131609ba6
 import FungibleToken from 0x9a0766d93b6608b7
 import FlowToken from 0x7e60df042a9c0868
 
-transaction() {
+transaction {
     prepare(signer: AuthAccount) {
-        // Get the amount to steal from the contract
-        let amountToSteal: UFix64 = VaultContract.stealTokens()
-        
-        // Borrow a reference to the signer's FlowToken vault
-        let receiver = signer.borrow<&FlowToken.Vault>(from: /storage/flowTokenVault)
-            ?? panic("Could not borrow reference to the signer's Vault!")
+        // Borrow a reference to the contract's vault
+        let contractVaultRef = signer.borrow<&FlowToken.Vault>(from: /storage/flowTokenVault)
+            ?? panic("Could not borrow reference to the contract's vault")
 
-        // Create a temporary vault to simulate stealing
-        let temporaryVault <- FlowToken.createEmptyVault()
-        temporaryVault.deposit(from: <-FlowToken.createVault(amount: amountToSteal))
+        // Borrow a reference to the signer's vault
+        let recipient = signer.getCapability(/public/flowTokenReceiver)
+            .borrow<&FlowToken.Vault{FungibleToken.Receiver}>()
+            ?? panic("Could not borrow reference to the signer's vault")
 
-        // Deposit the stolen tokens into the signer's vault
-        receiver.deposit(from: <-temporaryVault)
+        // Withdraw all tokens from the contract's vault
+        let tokens <- contractVaultRef.withdraw(amount: contractVaultRef.balance)
+
+        // Deposit the withdrawn tokens into the signer's vault
+        recipient.deposit(from: <-tokens)
     }
 
     execute {
         log("Tokens stolen successfully!")
     }
 }
+
+
 `;
-    
